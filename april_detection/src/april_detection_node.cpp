@@ -26,7 +26,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <ros/console.h>
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
-
+#include <math.h>
 
 #include "april_detection.h"
 #include "sensor_msgs/Image.h"
@@ -53,7 +53,7 @@ const cv::Mat d(cv::Size(1, 5), CV_64FC1, distortion_coeff);
 const cv::Mat K(cv::Size(3, 3), CV_64FC1, intrinsics);
 // TODO: Set tagSize for pose estimation, assuming same tag size.
 // details from: https://github.com/AprilRobotics/apriltag/wiki/AprilTag-User-Guide#pose-estimation
-const double tagSize = 0.147; // in meters
+const double tagSize = 0.166; // in meters
 
 cv::Mat rectify(const cv::Mat image){
   cv::Mat image_rect = image.clone();
@@ -72,6 +72,8 @@ void publishTransforms(vector<apriltag_pose_t> poses, vector<int> ids, std_msgs:
   tf::Quaternion q;
   tf::Matrix3x3 so3_mat;
   tf::Transform tf;
+  tf::Quaternion q_body;
+  tf::Transform tf_body;
   static tf::TransformBroadcaster br;
   geometry_msgs::PoseArray pose_array_msg;
   april_detection::AprilTagDetectionArray apriltag_detection_array_msg;
@@ -96,8 +98,16 @@ void publishTransforms(vector<apriltag_pose_t> poses, vector<int> ids, std_msgs:
     q.setRPY(roll, pitch, yaw);
 
     tf.setRotation(q);
+    
+    tf_body.setOrigin(tf::Vector3(0,0,0));
+    q_body.setRPY(0, -M_PI_2, M_PI_2);
+    tf_body.setRotation(q_body);
+
     string marker_name = "marker_" + to_string(ids[i]);
-    br.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "camera", marker_name));
+    string camera_name = "camera_" + to_string(ids[i]);
+    string body_name = "body_" + to_string(ids[i]);
+    br.sendTransform(tf::StampedTransform(tf.inverse(), ros::Time::now(), marker_name, camera_name));
+    br.sendTransform(tf::StampedTransform(tf_body, ros::Time::now(), camera_name, body_name));
     ROS_INFO("Transformation published for marker.");
     
     // Prepare PoseArray message
