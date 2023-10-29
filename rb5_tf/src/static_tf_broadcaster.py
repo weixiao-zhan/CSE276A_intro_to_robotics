@@ -9,8 +9,7 @@ if __name__ == '__main__':
     br = tf.TransformBroadcaster()
     rate = rospy.Rate(10.0)
     while not rospy.is_shutdown():
-        
-        br.sendTransform((0.0, 0.8, 0.0),
+        br.sendTransform((1, 0, 0.0),
                             tf.transformations.quaternion_from_euler(0, math.pi/2, -1*math.pi/2, 'rxyz'),
                             rospy.Time.now(),
                             "marker_0",
@@ -40,4 +39,5 @@ if __name__ == '__main__':
         
         )
         '''
+        print("static_tf_broadcaster is running")
         rate.sleep()

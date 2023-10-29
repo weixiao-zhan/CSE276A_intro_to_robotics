@@ -58,11 +58,23 @@ class MegaPiController:
                   " vfr: " + repr(int(round(vfr,0))) +
                   " vbl: " + repr(int(round(vbl,0))) +
                   " vbr: " + repr(int(round(vbr,0))))
-        self.bot.motorRun(self.mfl,vfl)
-        self.bot.motorRun(self.mfr,vfr)
-        self.bot.motorRun(self.mbl,vbl)
-        self.bot.motorRun(self.mbr,vbr)
+            
 
+        cbl = 0.86 if vbl > 0 else 0.86
+        cbr = 0.852 if vbr > 0 else 0.85
+        cfl = 0.86 if vfl > 0 else 0.88
+        cfr = 0.86 if vfr > 0 else 0.84
+        
+        if self.verbose:
+            print("Set Motors (actual): vfl: " + repr((round(cfl*vfl,1))) + 
+                  " vfr: " + repr(int(round(cfr*vfr,1))) +
+                  " vbl: " + repr(int(round(cbl*vbl,1))) +
+                  " vbr: " + repr(int(round(cbr*vbr,1))))
+
+        self.bot.motorRun(self.mfl,cfl*vfl)
+        self.bot.motorRun(self.mfr,cfr*vfr)
+        self.bot.motorRun(self.mbl,cbl*vbl)
+        self.bot.motorRun(self.mbr,cbr*vbr)
 
     def carStop(self):
         if self.verbose:
@@ -107,12 +119,12 @@ if __name__ == "__main__":
     import time
     mpi_ctrl = MegaPiController(port='/dev/ttyUSB0', verbose=True)
     time.sleep(1)
-    #mpi_ctrl.carStraight(30)
+    #mpi_ctrl.carStraight(-40)
     #time.sleep(1)
     #mpi_ctrl.carSlide(30)
     #time.sleep(1)
     #mpi_ctrl.carRotate(30)
-    mpi_ctrl.setFourMotors(40, -40, 40, -40)
-    time.sleep(10)
+    #mpi_ctrl.setFourMotors(40, -40, 40, -40)
+    #time.sleep(10)
     mpi_ctrl.carStop()
     # print("If your program cannot be closed properly, check updated instructions in google doc.")
