@@ -5,6 +5,7 @@ import rospy, time
 import tf
 from tf.transformations import euler_from_quaternion
 from sensor_msgs.msg import Joy
+import math
 
 def april_callback(april_tag_out):
 
@@ -15,6 +16,8 @@ def april_callback(april_tag_out):
     x_avg = 0.0
     y_avg = 0.0
     theta_avg = 0.0
+    weight_sum = 0.0
+    
 
     for detection in detections:
         id = detection.id
@@ -25,9 +28,12 @@ def april_callback(april_tag_out):
             (translation, rotation) = listener.lookupTransform("/world", body_frame_name , rospy.Time(0))
             rotation = euler_from_quaternion(rotation, 'sxyz')
 
-            x_avg += translation[0]
-            y_avg += translation[1]
-            theta_avg += rotation[2]
+            weight_curr_marker = 1/(translation[0]**2 + translation[1]**2)
+
+            x_avg += translation[0]*weight_curr_marker
+            y_avg += translation[1]*weight_curr_marker
+            theta_avg += rotation[2]*weight_curr_marker
+            weight_sum += weight_curr_marker
             num_detections += 1
             
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
@@ -37,9 +43,9 @@ def april_callback(april_tag_out):
     joy_msg.buttons = [0, 0, 0, 0, 0, 0, 0, 0]
     
     if num_detections !=0:
-        x_avg /= num_detections
-        y_avg /= num_detections
-        theta_avg /= num_detections
+        x_avg /= weight_sum
+        y_avg /= weight_sum
+        theta_avg /= weight_sum
         joy_msg.axes = [1.0, x_avg ,y_avg ,theta_avg ,0.0 ,0.0 ,0.0 ,0.0]
     else:
         joy_msg.axes = [-1.0, 0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,0.0]

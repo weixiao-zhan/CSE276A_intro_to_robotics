@@ -16,7 +16,7 @@ class PID:
         self.I = np.array([0.0,0.0,0.0])
         self.lastError = np.array([0.0,0.0,0.0])
         self.timestep = dt
-        self.maximumValue = 0.4 # ToDo
+        self.maximumValue = 0.35 # ToDo
         self.minimumValue = 0.3
 
     def getError(self, currentState, targetState):
@@ -72,7 +72,7 @@ class PathPlanner:
         self.verbose = verbose
         self.rate = rospy.Rate(20)  # 10Hz
         self.dt = 0.05
-        self.pid = PID(0.5, 0.025, 0.025, self.dt)
+        self.pid = PID(0.5, 0.010, 0.030, self.dt)
 
         self.lock = threading.Lock()
         self.cur_x = 0
@@ -116,7 +116,7 @@ class PathPlanner:
         msg_count = 0 
         msg_count = self.publish(0,0,0,msg_count)
 
-        while np.linalg.norm(self.pid.getError(np.array([self.cur_x, self.cur_y, self.cur_ori]), np.array([target_x, target_y, target_ori]))) > 0.05:
+        while np.linalg.norm(self.pid.getError(np.array([self.cur_x, self.cur_y, self.cur_ori]), np.array([target_x, target_y, target_ori]))) > 0.015:
             with self.lock:
                 cur_x, cur_y, cur_ori = self.cur_x, self.cur_y, self.cur_ori
             
@@ -126,7 +126,7 @@ class PathPlanner:
 
             vvw = handle_frame_transforms(vvw_wf, [cur_x, cur_y, cur_ori])
             
-            msg_count = self.publish(vvw[0], vvw[1], vvw[2], msg_count)
+            msg_count = self.publish(vvw[0], 1.3*vvw[1], vvw[2], msg_count)
 
             ## giving the bot dt to move actually
             self.rate.sleep()
@@ -162,6 +162,10 @@ class PathPlanner:
                 continue
 
             self.move_to_pose(target_x, target_y, target_ori)
+            if target_x==1.5 and target_y ==1 and target_ori==1.57:
+                pass
+            else: 
+                time.sleep(5)
 
         ## Stopping after all waypoints have been traversed
         #self.move_to_pose(0.5, 1, 3.141)
@@ -182,9 +186,9 @@ if __name__ == "__main__":
     time.sleep(1)
     pp.run()
     
-    with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" 'x_locs'  + ".pkl", 'rb') as f:
+    with open("/root/rb5_ws/src/rb5_ros/path_planner/src/"+ 'x_locs'  + ".pkl", 'wb') as f:
         pickle.dump(pp.x_locs, f)
-    with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" 'y_locs'  + ".pkl", 'rb') as f:
+    with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs'  + ".pkl", 'wb') as f:
         pickle.dump(pp.y_locs, f)
 
     rospy.spin()

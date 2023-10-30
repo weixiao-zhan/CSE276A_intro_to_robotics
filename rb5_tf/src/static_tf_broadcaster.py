@@ -16,6 +16,13 @@ if __name__ == '__main__':
                             "world",
         )
 
+        br.sendTransform((2, 0, 0.0),
+                            tf.transformations.quaternion_from_euler(0, math.pi/2, -1*math.pi/2, 'rxyz'),
+                            rospy.Time.now(),
+                            "marker_3",
+                            "world",
+        )
+
         '''
         br.sendTransform((0, 1.0, 0.0),
                             tf.transformations.quaternion_from_euler(-1*math.pi/2, 0, 0, 'rxyz'),
