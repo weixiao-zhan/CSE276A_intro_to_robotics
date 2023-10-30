@@ -6,7 +6,6 @@ import time
 import threading
 from datetime import datetime
 from sensor_msgs.msg import Joy
-import pickle
 import numpy as np
 
 # PID code motivated by: Code in lecture slide-4
@@ -182,6 +181,14 @@ class PathPlanner:
         exit()
 
     def stop(self):
+        pp.x_locs = np.array(pp.x_locs, dtype=float)
+        pp.y_locs = np.array(pp.y_locs, dtype=float)
+
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'x_locs' + ".npy", 'wb') as f:
+            np.save(f, pp.x_locs)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs' + ".npy", 'wb') as f:
+            np.save(f, pp.y_locs)
+
         self.file.close()
         print("path plan all published")
 
@@ -195,10 +202,5 @@ if __name__ == "__main__":
     rospy.Subscriber('/bot_loc', Joy, pp.bot_loc_callback, queue_size=3)
     time.sleep(1)
     pp.run()
-
-    with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'x_locs' + ".pkl", 'wb') as f:
-        pickle.dump(pp.x_locs, f)
-    with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs' + ".pkl", 'wb') as f:
-        pickle.dump(pp.y_locs, f)
 
     rospy.spin()

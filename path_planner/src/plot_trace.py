@@ -1,11 +1,11 @@
-import pickle
+import numpy as np
 import matplotlib.pyplot as plt
 
-with open('x_locs'  + ".pkl", 'rb') as f:
-    x = pickle.load(f)
+with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'x_locs' + ".npy", 'rb') as f:
+    x = np.load(f)
     print(x)
-with open('y_locs'  + ".pkl", 'rb') as f:
-    y = pickle.load(f)
+with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs' + ".npy", 'rb') as f:
+    y = np.load(f)
     print(y)
 
 # Create scatter plot
