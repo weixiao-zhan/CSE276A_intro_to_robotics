@@ -122,10 +122,8 @@ class PathPlanner:
             
             ## These are world frame linear and angular velocities
             vvw_wf = self.pid.update(np.array([cur_x, cur_y, cur_ori]))
-            print('world frame velocities:', vvw_wf)
-
+            if self.verbose: print('world frame velocities:', vvw_wf)
             vvw = handle_frame_transforms(vvw_wf, [cur_x, cur_y, cur_ori])
-            
             msg_count = self.publish(vvw[0], 1.3*vvw[1], vvw[2], msg_count)
 
             ## giving the bot dt to move actually
@@ -137,19 +135,17 @@ class PathPlanner:
                     self.cur_x = cur_x + vvw_wf[0]*self.dt
                     self.cur_y = cur_y + vvw_wf[1]*self.dt
                     self.cur_ori = cur_ori + vvw_wf[2]*self.dt
-
-            print('final_position:')
-            
-            # logging
-            with self.lock:
+                    if self.verbose: print("momentum update")
+                else:
+                    if self.verbose: print("visual update")
+                # logging
                 self.x_locs.append(self.cur_x)
                 self.y_locs.append(self.cur_y)
-                print(self.cur_x, self.cur_y, self.cur_ori)
+                if self.verbose: print(self.cur_x, self.cur_y, self.cur_ori)
 
         ## Stopping the bot
         msg_count = self.publish(0,0,0,msg_count)
     
-
     def run(self):
         # Initial Position
         for line in self.file:
@@ -180,7 +176,7 @@ if __name__ == "__main__":
     rospy.init_node("path_planner")  
 
     pub = rospy.Publisher("/bot_vvw", Joy, queue_size=6)
-    pp = PathPlanner(True)
+    pp = PathPlanner(verbose=True)
     
     rospy.Subscriber('/bot_loc', Joy, pp.bot_loc_callback, queue_size=3)
     time.sleep(1)
