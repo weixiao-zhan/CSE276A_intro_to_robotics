@@ -21,7 +21,7 @@ class PID:
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = dt
         self.maximumValue = 0.35  # ToDo
-        self.minimumValue = 0.3
+        self.minimumValue = 0.20
 
     def getError(self, currentState, targetState):
         """
@@ -79,7 +79,7 @@ class PathPlanner:
         self.verbose = verbose
         self.rate = rospy.Rate(20)  # 10Hz
         self.dt = 0.05
-        self.pid = PID(0.5, 0.010, 0.030, self.dt)
+        self.pid = PID(0.40, 0.010, 0.030, self.dt)
 
         self.lock = threading.Lock()
         self.cur_x = 0
@@ -87,6 +87,9 @@ class PathPlanner:
         self.cur_ori = 0
         self.x_locs = []
         self.y_locs = []
+        self.theta_locs = []
+        self.waypoints_locs = []
+        self.update_type = []
         self.most_recent_update = datetime.now()
 
     def bot_loc_callback(self, bot_loc):
@@ -123,37 +126,42 @@ class PathPlanner:
         msg_count = 0
         msg_count = self.publish(0, 0, 0, msg_count)
 
-        while np.linalg.norm(self.pid.getError(np.array([self.cur_x, self.cur_y, self.cur_ori]), np.array([target_x, target_y, target_ori]))) > 0.015:
+        while np.linalg.norm(self.pid.getError(np.array([self.cur_x, self.cur_y, self.cur_ori]), np.array([target_x, target_y, target_ori]))) > 0.04:
             with self.lock:
                 cur_x, cur_y, cur_ori = self.cur_x, self.cur_y, self.cur_ori
-                # logging
-                self.x_locs.append(self.cur_x)
-                self.y_locs.append(self.cur_y)
 
             # These are world frame linear and angular velocities
             vvw_wf = self.pid.update(np.array([cur_x, cur_y, cur_ori]))
             if self.verbose:
                 print('world frame velocities:', vvw_wf)
             vvw = handle_frame_transforms(vvw_wf, [cur_x, cur_y, cur_ori])
-            msg_count = self.publish(vvw[0], 1.3*vvw[1], vvw[2], msg_count)
+            msg_count = self.publish(vvw[0], 1.25*vvw[1], vvw[2], msg_count)
 
             # giving the bot dt to move actually
             self.rate.sleep()
 
             # Updating our position belief in world frame
             with self.lock:
+                self.x_locs.append(self.cur_x)
+                self.y_locs.append(self.cur_y)
+                self.theta_locs.append(self.cur_ori)
                 if (datetime.now() - self.most_recent_update).total_seconds() > 0.5*self.dt:
                     self.cur_x = cur_x + vvw_wf[0]*self.dt
                     self.cur_y = cur_y + vvw_wf[1]*self.dt
+                    self.update_type.append(0)
                     self.cur_ori = cur_ori + vvw_wf[2]*self.dt
                     if self.verbose:
                         print("momentum update")
                 else:
+                    self.update_type.append(1)
                     if self.verbose:
                         print("visual update")
                 if self.verbose:
                     print(self.cur_x, self.cur_y, self.cur_ori)
 
+        with self.lock:
+            self.waypoints_locs.append((self.cur_x, self.cur_y, self.cur_ori))
+        
         # Stopping the bot
         msg_count = self.publish(0, 0, 0, msg_count)
 
@@ -176,18 +184,28 @@ class PathPlanner:
                 time.sleep(5)
 
         # Stopping after all waypoints have been traversed
-        # self.move_to_pose(0.5, 1, 3.141)
         self.stop()
         exit()
 
     def stop(self):
         pp.x_locs = np.array(pp.x_locs, dtype=float)
         pp.y_locs = np.array(pp.y_locs, dtype=float)
+        pp.theta_locs = np.array(pp.theta_locs, dtype= float)
+        pp.waypoints_locs = np.array(pp.waypoints_locs, dtype= float)
+        pp.update_type = np.array(pp.update_type, dtype = float)
 
         with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'x_locs' + ".npy", 'wb') as f:
             np.save(f, pp.x_locs)
         with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs' + ".npy", 'wb') as f:
             np.save(f, pp.y_locs)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'theta_locs' + ".npy", 'wb') as f:
+            np.save(f, pp.theta_locs)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'waypoints_locs' + ".npy", 'wb') as f:
+            np.save(f, pp.waypoints_locs)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'update_type' + ".npy", 'wb') as f:
+            np.save(f, pp.update_type)
+
+
 
         self.file.close()
         print("path plan all published")

@@ -36,7 +36,7 @@ def april_callback(april_tag_out):
             weight_sum += weight_curr_marker
             num_detections += 1
             
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+        except Exception:
             print("Unable to find transform")
 
     joy_msg = Joy()
