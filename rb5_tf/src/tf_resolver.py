@@ -1,11 +1,23 @@
 #!/usr/bin/env python
 
 from april_detection.msg import AprilTagDetectionArray
+from rb5_tf.msg import ArrayMessage
 import rospy, time
 import tf
 from tf.transformations import euler_from_quaternion
 from sensor_msgs.msg import Joy
 import math
+import numpy as np
+
+def nparray_to_msg(numpy_array):
+    msg = ArrayMessage()
+    msg.data = numpy_array.flatten().tolist()  # Convert array to list
+    msg.rows = numpy_array.shape[0]
+    msg.cols = numpy_array.shape[1]
+
+def msg_to_nparray(msg):
+    return np.array(msg.data).reshape((msg.rows, msg.cols))
+
 
 def april_callback(april_tag_out):
 
