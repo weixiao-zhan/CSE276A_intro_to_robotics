@@ -8,7 +8,58 @@ from datetime import datetime
 from sensor_msgs.msg import Joy
 import numpy as np
 
-# PID code motivated by: Code in lecture slide-4
+class KF:
+
+    def __init__(self, n):
+        self.Xk = np.zeros((n,1))  # Start from Origin
+        self.Sigmak = np.identity(n)*0.001
+        self.Fk = np.identity(n)
+        self.Qk = np.identity(n)
+
+        self.Qk[0][0] = 0.02 
+        self.Qk[1][1] = 0.02
+        self.Qk[2][2] = 0.001
+
+        self.Rk = np.identity(n)
+        self.Rk *= 0.0001
+ 
+
+    def predict(self, dx, dy, dtheta):
+        """
+        Prediction step of Kalman Filter
+        """
+
+        # Performing an predict on bot locations.
+        # Landmark Locations are stationary so, not updated.
+        Xknew = self.Xk.copy()
+        Xknew[0][0] = Xknew[0][0] + dx
+        Xknew[1][0] = Xknew[1][0] + dy
+        Xknew[2][0] = Xknew[2][0] + dtheta
+
+        # Updating the uncertainities of the State vector.
+        Sigmaknew = np.matmul(np.matmul(self.Fk, self.Sigmak), self.Fk.T) + Qk
+        
+        return Xknew, Sigmaknew
+    
+    def update(self, Zk, Xknew, Sigmaknew):
+        """
+        Update step of Kalman Filter
+        """
+
+        # Computing Kalman Gain and other matrices.
+        Yk = Zk - np.matmul(self.Hk, Xknew)
+        Sk = np.matmul(np.matmul(self.Fk, Sigmaknew), self.Fk.T) + self.Rk
+        Kk = np.matmul(np.matmul(Sigmaknew, self.Hk.T), np.linalg.inv(Sk))
+
+        # Updating the State and Uncertanities based on KF.
+        Xknewfinal = Xknew + np.matmul(Kk, Yk)
+        Sigmaknewfinal = np.matmul((np.identity(Sigmaknew.shape[0]) - np.matmul(Kk, self.Hk)), Sigmaknew)
+
+        self.Xk = Xknewfinal
+        self.Sigmak = Sigmaknewfinal
+
+    def update_matrix_sizes(self):
+        pass
 
 
 class PID:
