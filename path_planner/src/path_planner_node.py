@@ -7,6 +7,7 @@ import threading
 from datetime import datetime
 from sensor_msgs.msg import Joy
 import numpy as np
+import tf
 
 class KF:
 
@@ -22,7 +23,28 @@ class KF:
 
         self.Rk = np.identity(n)
         self.Rk *= 0.0001
- 
+
+        self.lm_ordering = []
+
+    def compose_Zk(self, zk):
+        """
+        Compose Xlm, Ylms into Zk
+        Also, updating Hk
+        """
+
+        Zk = []
+        current_in_view = []
+
+        for id in self.lm_ordering:
+            if id in zk:
+                Zk.extend(zk[id])
+                current_in_view.append(id)
+
+        #for id in current_in_view:
+
+                
+        return np.array(Zk).reshape(-1, 1)
+
 
     def predict(self, dx, dy, dtheta):
         """
@@ -37,7 +59,7 @@ class KF:
         Xknew[2][0] = Xknew[2][0] + dtheta
 
         # Updating the uncertainities of the State vector.
-        Sigmaknew = np.matmul(np.matmul(self.Fk, self.Sigmak), self.Fk.T) + Qk
+        Sigmaknew = np.matmul(np.matmul(self.Fk, self.Sigmak), self.Fk.T) + self.Qk
         
         return Xknew, Sigmaknew
     
@@ -45,6 +67,11 @@ class KF:
         """
         Update step of Kalman Filter
         """
+
+        if Zk.shape[0] == 0:
+            self.Xk = Xknew
+            self.Sigmak = Sigmaknew
+            return
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
@@ -58,8 +85,16 @@ class KF:
         self.Xk = Xknewfinal
         self.Sigmak = Sigmaknewfinal
 
-    def update_matrix_sizes(self):
-        pass
+    def update_matrices(self, zk):  
+        """
+        Updating the matrices Xk, Sigmak, Fk, Qk, Rk
+        """
+
+        for id in zk.keys():
+            if id not in self.lm_ordering:
+                self.lm_ordering.append(id)
+
+        
 
 
 class PID:
@@ -121,7 +156,29 @@ def handle_frame_transforms(vvw, current_state):
                   [0.0, 0.0, 1.0]])
     return np.dot(J, vvw)
 
-
+class tf_resolver:
+    def __init(self):
+        self.listener = tf.TransformListener()
+        self.markers = set()
+        self.new_markers = set()
+    
+    def getZk(self):
+        '''
+        look into /tf, return Zk array and index array
+        '''
+        self.new_markers.clear()
+        Zk = {}
+        for idx in range(0,8):
+            marker_name = "marker_" + str(idx)
+            if self.listener.frameExists(marker_name):
+                if idx not in self.markers:
+                    self.markers.add(idx)
+                    self.new_markers.add(idx)
+                self.listener.waitForTransform(marker_name, "/body", rospy.Time(), rospy.Duration(1))
+                (translation, rotation) = self.listener.lookupTransform(marker_name, "/body", rospy.Time(0))
+                Zk[idx] = translation[0:2] # marker_i.x in body frame
+        return Zk
+    
 class PathPlanner:
     def __init__(self, verbose=False):
         self.pub = rospy.Publisher("/bot_vvw", Joy, queue_size=6)
@@ -131,29 +188,11 @@ class PathPlanner:
         self.rate = rospy.Rate(20)  # 10Hz
         self.dt = 0.05
         self.pid = PID(0.40, 0.010, 0.030, self.dt)
+        self.tf_resolver = tf_resolver()
+        self.kf = KF(3)
 
-        self.lock = threading.Lock()
-        self.cur_x = 0
-        self.cur_y = 0
-        self.cur_ori = 0
-        self.x_locs = []
-        self.y_locs = []
-        self.theta_locs = []
-        self.waypoints_locs = []
-        self.update_type = []
-        self.most_recent_update = datetime.now()
-
-    def bot_loc_callback(self, bot_loc):
-        bot_loc = bot_loc.axes
-        if bot_loc[0] == 1:
-            if self.verbose:
-                print("get loc from camera loop",
-                      bot_loc[1], bot_loc[2], bot_loc[3])
-            with self.lock:
-                self.cur_x = bot_loc[1]
-                self.cur_y = bot_loc[2]
-                self.cur_ori = bot_loc[3]
-                self.most_recent_update = datetime.now()
+        self.logging_x = []
+        self.logging_y = []
 
     def publish(self, vx, vy, w, msg_count):
         '''
@@ -177,9 +216,8 @@ class PathPlanner:
         msg_count = 0
         msg_count = self.publish(0, 0, 0, msg_count)
 
-        while np.linalg.norm(self.pid.getError(np.array([self.cur_x, self.cur_y, self.cur_ori]), np.array([target_x, target_y, target_ori]))) > 0.04:
-            with self.lock:
-                cur_x, cur_y, cur_ori = self.cur_x, self.cur_y, self.cur_ori
+        while np.linalg.norm(self.pid.getError(self.kf.Xk[0:3, 0], np.array([target_x, target_y, target_ori]))) > 0.04:
+            cur_x, cur_y, cur_ori = self.kf.Xk[0, 0], self.kf.Xk[1, 0], self.kf.Xk[2, 0]
 
             # These are world frame linear and angular velocities
             vvw_wf = self.pid.update(np.array([cur_x, cur_y, cur_ori]))
@@ -191,27 +229,17 @@ class PathPlanner:
             # giving the bot dt to move actually
             self.rate.sleep()
 
-            # Updating our position belief in world frame
-            with self.lock:
-                self.x_locs.append(self.cur_x)
-                self.y_locs.append(self.cur_y)
-                self.theta_locs.append(self.cur_ori)
-                if (datetime.now() - self.most_recent_update).total_seconds() > 0.5*self.dt:
-                    self.cur_x = cur_x + vvw_wf[0]*self.dt
-                    self.cur_y = cur_y + vvw_wf[1]*self.dt
-                    self.update_type.append(0)
-                    self.cur_ori = cur_ori + vvw_wf[2]*self.dt
-                    if self.verbose:
-                        print("momentum update")
-                else:
-                    self.update_type.append(1)
-                    if self.verbose:
-                        print("visual update")
-                if self.verbose:
-                    print(self.cur_x, self.cur_y, self.cur_ori)
+            dx = vvw_wf[0]*self.dt
+            dy = vvw_wf[1]*self.dt
+            dtheta = vvw_wf[2]*self.dt
 
-        with self.lock:
-            self.waypoints_locs.append((self.cur_x, self.cur_y, self.cur_ori))
+            zk = self.tf_resolver.getZk()  ## Dict
+            Zk = self.kf.compose_Zk(zk)
+
+            Xknew, Sigmaknew = self.kf.predict(dx, dy, dtheta)
+            self.kf.update(Zk, Xknew, Sigmaknew)
+            self.kf.update_matrices(zk)
+
         
         # Stopping the bot
         msg_count = self.publish(0, 0, 0, msg_count)
@@ -224,52 +252,23 @@ class PathPlanner:
             target_y = float(line[1])
             target_ori = float(line[2])  # This is Positive in CCW
 
-            if (target_x == self.cur_x) and (target_y == self.cur_y) and (target_ori == self.cur_ori):
-                continue
-
             self.move_to_pose(target_x, target_y, target_ori)
-
-            if target_x == 1.5 and target_y == 1 and target_ori == 1.57:
-                pass
-            else:
-                time.sleep(5)
+            time.sleep(5)
 
         # Stopping after all waypoints have been traversed
         self.stop()
         exit()
 
     def stop(self):
-        pp.x_locs = np.array(pp.x_locs, dtype=float)
-        pp.y_locs = np.array(pp.y_locs, dtype=float)
-        pp.theta_locs = np.array(pp.theta_locs, dtype= float)
-        pp.waypoints_locs = np.array(pp.waypoints_locs, dtype= float)
-        pp.update_type = np.array(pp.update_type, dtype = float)
-
-        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'x_locs' + ".npy", 'wb') as f:
-            np.save(f, pp.x_locs)
-        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs' + ".npy", 'wb') as f:
-            np.save(f, pp.y_locs)
-        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'theta_locs' + ".npy", 'wb') as f:
-            np.save(f, pp.theta_locs)
-        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'waypoints_locs' + ".npy", 'wb') as f:
-            np.save(f, pp.waypoints_locs)
-        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'update_type' + ".npy", 'wb') as f:
-            np.save(f, pp.update_type)
-
-
-
+        # TODO: Add logging file saving 
         self.file.close()
         print("path plan all published")
 
 
 if __name__ == "__main__":
     rospy.init_node("path_planner")
-
     pub = rospy.Publisher("/bot_vvw", Joy, queue_size=6)
     pp = PathPlanner(verbose=True)
-
-    rospy.Subscriber('/bot_loc', Joy, pp.bot_loc_callback, queue_size=3)
     time.sleep(1)
     pp.run()
-
     rospy.spin()
