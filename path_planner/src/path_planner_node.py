@@ -10,7 +10,6 @@ import numpy as np
 import tf
 
 class KF:
-
     def __init__(self, n):
         self.Xk = np.zeros((n,1))  # Start from Origin
         self.Sigmak = np.identity(n)*0.001
@@ -24,27 +23,60 @@ class KF:
         self.Rk = np.identity(n)
         self.Rk *= 0.0001
 
+        self.Hk = None
         self.lm_ordering = []
 
     def compose_Zk(self, zk):
         """
-        Compose Xlm, Ylms into Zk
+        Compose [Xlm, Ylm]'s into Zk
         Also, updating Hk
         """
 
         Zk = []
-        current_in_view = []
-
         for id in self.lm_ordering:
             if id in zk:
                 Zk.extend(zk[id])
-                current_in_view.append(id)
 
-        #for id in current_in_view:
-
-                
         return np.array(Zk).reshape(-1, 1)
+    
+    def getHk(self, Xknew, zk, Zk):
+        """
+        Usedf to compute Hk, given Theta_Robot and Zk
+        """
+        
+        theta_r = Xknew[2,0]
+        Hk = np.zeros((Zk.shape[0], Xknew.shape[0]))
+        cosine_theta = np.cos(theta_r)
+        sine_theta = np.sin(theta_r)
 
+        # Used to get the row to update
+        counter = 0
+
+        for i in range(len(self.lm_ordering)):
+            tag_id = self.lm_ordering[i]
+            if tag_id in zk:
+                row1 = 2*counter 
+                row2 = 2*counter + 1
+
+                column1 = 2*i + 3
+                column2 = 2*i + 4
+
+                # Updating entries corresponding to xr, yr, thetar
+                Hk[row1, 0] = -1*cosine_theta
+                Hk[row1, 1] = -1*sine_theta
+                Hk[row2, 0] = sine_theta
+                Hk[row2, 1] = cosine_theta
+
+                # Updating entries corresponding to xlm, ylm
+                Hk[row1, column1] = cosine_theta
+                Hk[row1, column2] = sine_theta
+                Hk[row2, column1] = -1*sine_theta
+                Hk[row2, column2] = cosine_theta
+
+                counter += 1
+
+        self.Hk = Hk
+        return
 
     def predict(self, dx, dy, dtheta):
         """
@@ -63,7 +95,7 @@ class KF:
         
         return Xknew, Sigmaknew
     
-    def update(self, Zk, Xknew, Sigmaknew):
+    def update(self, Zk, Xknew, Sigmaknew, zk):
         """
         Update step of Kalman Filter
         """
@@ -72,6 +104,8 @@ class KF:
             self.Xk = Xknew
             self.Sigmak = Sigmaknew
             return
+
+        self.getHk(Xknew, zk, Zk)
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
@@ -94,9 +128,19 @@ class KF:
             if id not in self.lm_ordering:
                 self.lm_ordering.append(id)
 
+        new_dim_size = 3 + len(self.lm_ordering)
+        self.Rk = np.identity(new_dim_size)*0.0001
+        self.Fk = np.identity(new_dim_size)
+        self.Qk = np.identity(new_dim_size)*0.03
+
+        self.Qk[0][0] = 0.02 
+        self.Qk[1][1] = 0.02
+        self.Qk[2][2] = 0.001
+
+        #TODO: Updating Xk, Sigmak
+
+        return
         
-
-
 class PID:
     def __init__(self, Kp, Ki, Kd, dt):
         self.Kp = Kp
@@ -174,8 +218,8 @@ class tf_resolver:
                 if idx not in self.markers:
                     self.markers.add(idx)
                     self.new_markers.add(idx)
-                self.listener.waitForTransform(marker_name, "/body", rospy.Time(), rospy.Duration(1))
-                (translation, rotation) = self.listener.lookupTransform(marker_name, "/body", rospy.Time(0))
+                self.listener.waitForTransform("/body", marker_name, rospy.Time(), rospy.Duration(1))
+                (translation, rotation) = self.listener.lookupTransform("/body", marker_name, rospy.Time(0))
                 Zk[idx] = translation[0:2] # marker_i.x in body frame
         return Zk
     
@@ -237,7 +281,7 @@ class PathPlanner:
             Zk = self.kf.compose_Zk(zk)
 
             Xknew, Sigmaknew = self.kf.predict(dx, dy, dtheta)
-            self.kf.update(Zk, Xknew, Sigmaknew)
+            self.kf.update(Zk, Xknew, Sigmaknew, zk)
             self.kf.update_matrices(zk)
 
         
