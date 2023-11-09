@@ -107,8 +107,8 @@ class KF:
             return
 
         self.getHk(Xknew, zk, Zk)
-        # Measurement Noise woule be zxz
-        self.Rk = np.identity(Zk.shape[0])*0.0001
+        # Measurement Noise woule be z x z
+        self.Rk = np.identity(Zk.shape[0])*0.0001 # Std dev ofmeasurement noise -> 0.01 (1 cm)
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
@@ -146,8 +146,8 @@ class KF:
                 curr_dim = Xk_updated.shape[0]
                 Sigmak_new = np.zeros((curr_dim, curr_dim))
                 Sigmak_new[0:curr_dim-2, 0:curr_dim-2] = Sigmak_updated
-                Sigmak_new[-1, -1] = 1 # TODO
-                Sigmak_new[-2, -2] = 1 # TODO
+                Sigmak_new[-1, -1] = 1 # Std dev of new marker y -> 1m
+                Sigmak_new[-2, -2] = 1 # Std dev of new marker x -> 1m
                 Sigmak_updated = Sigmak_new.copy()
 
         new_dim_size = Xk_updated.shape[0]
@@ -275,7 +275,7 @@ class PathPlanner:
         return msg_count
 
     def move_to_pose(self, target_x, target_y, target_ori):
-        # rest PID
+        # reset PID
         self.pid.setTarget(target_x, target_y, target_ori)
 
         # Publishing first dummy message
