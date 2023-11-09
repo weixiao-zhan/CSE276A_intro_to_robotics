@@ -65,7 +65,7 @@ class KF:
                 Hk[row1, 0] = -1*cosine_theta
                 Hk[row1, 1] = -1*sine_theta
                 Hk[row2, 0] = sine_theta
-                Hk[row2, 1] = cosine_theta
+                Hk[row2, 1] = -1*cosine_theta
 
                 # Updating entries corresponding to xlm, ylm
                 Hk[row1, column1] = cosine_theta
@@ -109,7 +109,7 @@ class KF:
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
-        Sk = np.matmul(np.matmul(self.Fk, Sigmaknew), self.Fk.T) + self.Rk
+        Sk = np.matmul(np.matmul(self.Hk, Sigmaknew), self.Hk.T) + self.Rk
         Kk = np.matmul(np.matmul(Sigmaknew, self.Hk.T), np.linalg.inv(Sk))
 
         # Updating the State and Uncertanities based on KF.
@@ -123,21 +123,41 @@ class KF:
         """
         Updating the matrices Xk, Sigmak, Fk, Qk, Rk
         """
+        Xk_updated = self.Xk.copy()
+        Sigmak_updated = self.Sigmak.copy()
+
+        xr = Xk_updated[0, 0]
+        yr = Xk_updated[1, 0]
+        thetar = Xk_updated[2, 0]
 
         for id in zk.keys():
             if id not in self.lm_ordering:
                 self.lm_ordering.append(id)
+                xlr = zk[id][0]
+                ylr = zk[id][1]
 
-        new_dim_size = 3 + len(self.lm_ordering)
+                xl = xlr*np.cos(thetar) - ylr*np.sin(thetar) + xr
+                yl = xlr*np.sin(thetar) + ylr*np.cos(thetar) + yr
+
+                Xk_updated = np.vstack((Xk_updated, np.array([xl, yl]).reshape(-1, 1)))
+                curr_dim = Xk_updated.shape[0]
+                Sigmak_new = np.zeros((curr_dim, curr_dim))
+                Sigmak_new[0:curr_dim-2, 0:curr_dim-2] = Sigmak_updated
+                Sigmak_new[-1, -1] = 1 # TODO
+                Sigmak_new[-2, -2] = 1 # TODO
+                Sigmak_updated = Sigmak_new.copy()
+
+        new_dim_size = Xk_updated.shape[0]
         self.Rk = np.identity(new_dim_size)*0.0001
         self.Fk = np.identity(new_dim_size)
         self.Qk = np.identity(new_dim_size)*0.03
 
-        self.Qk[0][0] = 0.02 
-        self.Qk[1][1] = 0.02
-        self.Qk[2][2] = 0.001
+        self.Qk[0, 0] = 0.02 
+        self.Qk[1, 1] = 0.02
+        self.Qk[2, 2] = 0.001
 
-        #TODO: Updating Xk, Sigmak
+        self.Xk = Xk_updated
+        self.Sigmak = Sigmak_updated
 
         return
         
@@ -200,8 +220,8 @@ def handle_frame_transforms(vvw, current_state):
                   [0.0, 0.0, 1.0]])
     return np.dot(J, vvw)
 
-class tf_resolver:
-    def __init(self):
+class tfResolver:
+    def __init__(self):
         self.listener = tf.TransformListener()
         self.markers = set()
         self.new_markers = set()
@@ -220,7 +240,7 @@ class tf_resolver:
                     self.new_markers.add(idx)
                 self.listener.waitForTransform("/body", marker_name, rospy.Time(), rospy.Duration(1))
                 (translation, rotation) = self.listener.lookupTransform("/body", marker_name, rospy.Time(0))
-                Zk[idx] = translation[0:2] # marker_i.x in body frame
+                Zk[idx] = translation[0:2] # marker_i in body frame
         return Zk
     
 class PathPlanner:
@@ -232,7 +252,7 @@ class PathPlanner:
         self.rate = rospy.Rate(20)  # 10Hz
         self.dt = 0.05
         self.pid = PID(0.40, 0.010, 0.030, self.dt)
-        self.tf_resolver = tf_resolver()
+        self.tf_resolver = tfResolver()
         self.kf = KF(3)
 
         self.logging_x = []
@@ -264,11 +284,11 @@ class PathPlanner:
             cur_x, cur_y, cur_ori = self.kf.Xk[0, 0], self.kf.Xk[1, 0], self.kf.Xk[2, 0]
 
             # These are world frame linear and angular velocities
-            vvw_wf = self.pid.update(np.array([cur_x, cur_y, cur_ori]))
+            vvw_wf = self.pid.update(self.kf.Xk[0:3, 0])
             if self.verbose:
                 print('world frame velocities:', vvw_wf)
-            vvw = handle_frame_transforms(vvw_wf, [cur_x, cur_y, cur_ori])
-            msg_count = self.publish(vvw[0], 1.25*vvw[1], vvw[2], msg_count)
+            vvw = handle_frame_transforms(vvw_wf, self.kf.Xk[0:3, 0])
+            msg_count = self.publish(vvw[0], vvw[1], 4*vvw[2], msg_count)
 
             # giving the bot dt to move actually
             self.rate.sleep()
@@ -284,6 +304,8 @@ class PathPlanner:
             self.kf.update(Zk, Xknew, Sigmaknew, zk)
             self.kf.update_matrices(zk)
 
+            self.logging_x.append(self.kf.Xk[0,0])
+            self.logging_y.append(self.kf.Xk[1,0])
         
         # Stopping the bot
         msg_count = self.publish(0, 0, 0, msg_count)
@@ -304,7 +326,16 @@ class PathPlanner:
         exit()
 
     def stop(self):
-        # TODO: Add logging file saving 
+        pp.logging_x = np.array(pp.logging_x, dtype=float)
+        pp.logging_y = np.array(pp.logging_y, dtype=float)
+
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'x_locs' + ".npy", 'wb') as f:
+            np.save(f, pp.logging_x)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'y_locs' + ".npy", 'wb') as f:
+            np.save(f, pp.logging_y)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'state_vector' + ".npy", 'wb') as f:
+            np.save(f, pp.kf.Xk)
+
         self.file.close()
         print("path plan all published")
 
