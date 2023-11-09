@@ -16,7 +16,7 @@ class KF:
         self.Fk = np.identity(n)
 
         # System Noise
-        self.Qk = np.identity(n) 
+        self.Qk = np.identity(n)*0 
         self.Qk[0][0] = 0.01  # Std dev in x for robot -> 0.1 (10 cm)
         self.Qk[1][1] = 0.01  # Std dev in y for robot -> 0.1 (10 cm)
         self.Qk[2][2] = 0.001  # Std dev in theta for robot -> 0.03 (~5 degrees)
@@ -42,7 +42,7 @@ class KF:
     
     def getHk(self, Xknew, zk, Zk):
         """
-        Usedf to compute Hk, given Theta_Robot and Zk
+        Used to compute Hk, given Theta_Robot and Zk
         """
         
         theta_r = Xknew[2,0]
@@ -153,10 +153,10 @@ class KF:
         new_dim_size = Xk_updated.shape[0]
         self.Fk = np.identity(new_dim_size)
 
-        self.Qk = np.identity(new_dim_size)
-        self.Qk[0, 0] = 0.01
-        self.Qk[1, 1] = 0.01
-        self.Qk[2, 2] = 0.001
+        self.Qk = np.identity(new_dim_size)*0 #TODO: System Noise for markers
+        self.Qk[0,0] = 0.01
+        self.Qk[1,1] = 0.01
+        self.Qk[2,2] = 0.001
 
         self.Xk = Xk_updated
         self.Sigmak = Sigmak_updated
@@ -321,7 +321,7 @@ class PathPlanner:
             target_ori = float(line[2])  # This is Positive in CCW
 
             self.move_to_pose(target_x, target_y, target_ori)
-            time.sleep(5)
+            time.sleep(1)
 
         # Stopping after all waypoints have been traversed
         self.stop()
