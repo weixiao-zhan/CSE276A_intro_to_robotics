@@ -12,18 +12,19 @@ import tf
 class KF:
     def __init__(self, n):
         self.Xk = np.zeros((n,1))  # Start from Origin
-        self.Sigmak = np.identity(n)*0.001
+        self.Sigmak = np.identity(n)*0.0001  # Should be small as I am confident about robot's initial posn
         self.Fk = np.identity(n)
-        self.Qk = np.identity(n)
 
-        self.Qk[0][0] = 0.02 
-        self.Qk[1][1] = 0.02
-        self.Qk[2][2] = 0.001
+        # System Noise
+        self.Qk = np.identity(n) 
+        self.Qk[0][0] = 0.01  # Std dev in x for robot -> 0.1 (10 cm)
+        self.Qk[1][1] = 0.01  # Std dev in y for robot -> 0.1 (10 cm)
+        self.Qk[2][2] = 0.001  # Std dev in theta for robot -> 0.03 (~5 degrees)
 
-        self.Rk = np.identity(n)
-        self.Rk *= 0.0001
-
+        self.Rk = None
         self.Hk = None
+
+        # Landmarks already known to KF
         self.lm_ordering = []
 
     def compose_Zk(self, zk):
@@ -106,6 +107,8 @@ class KF:
             return
 
         self.getHk(Xknew, zk, Zk)
+        # Measurement Noise woule be zxz
+        self.Rk = np.identity(Zk.shape[0])*0.0001
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
@@ -148,12 +151,11 @@ class KF:
                 Sigmak_updated = Sigmak_new.copy()
 
         new_dim_size = Xk_updated.shape[0]
-        self.Rk = np.identity(new_dim_size)*0.0001
         self.Fk = np.identity(new_dim_size)
-        self.Qk = np.identity(new_dim_size)*0.03
 
-        self.Qk[0, 0] = 0.02 
-        self.Qk[1, 1] = 0.02
+        self.Qk = np.identity(new_dim_size)
+        self.Qk[0, 0] = 0.01
+        self.Qk[1, 1] = 0.01
         self.Qk[2, 2] = 0.001
 
         self.Xk = Xk_updated
