@@ -67,11 +67,12 @@ class ControllerNode:
             if self.verbose:
                 print(vvw)
 
-            vx, vy, w = vvw[0], vvw[1], vvw[2]
+            vx, vy, w = vvw[0], vvw[1], vvw[2]  # TODO reclibrate by surface
             vel_arr = np.array([vx, vy, w]).T
             omegas = np.matmul(self.kinematic_model, vel_arr)
 
             ## the constant to convert actual omegas to motor commands
+            # omegas *= 10  -- Concrete
             omegas *= 10
             omegas = omegas.tolist()
             print(omegas)

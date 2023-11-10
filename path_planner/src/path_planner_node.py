@@ -16,7 +16,7 @@ class KF:
         self.Fk = np.identity(n)
 
         # System Noise
-        self.Qk = np.identity(n)*0 
+        self.Qk = np.identity(n)*0.03
         self.Qk[0][0] = 0.01  # Std dev in x for robot -> 0.1 (10 cm)
         self.Qk[1][1] = 0.01  # Std dev in y for robot -> 0.1 (10 cm)
         self.Qk[2][2] = 0.001  # Std dev in theta for robot -> 0.03 (~5 degrees)
@@ -93,14 +93,12 @@ class KF:
 
         # Updating the uncertainities of the State vector.
         Sigmaknew = np.matmul(np.matmul(self.Fk, self.Sigmak), self.Fk.T) + self.Qk
-        
         return Xknew, Sigmaknew
     
     def update(self, Zk, Xknew, Sigmaknew, zk):
         """
         Update step of Kalman Filter
         """
-
         if Zk.shape[0] == 0:
             self.Xk = Xknew
             self.Sigmak = Sigmaknew
@@ -153,7 +151,7 @@ class KF:
         new_dim_size = Xk_updated.shape[0]
         self.Fk = np.identity(new_dim_size)
 
-        self.Qk = np.identity(new_dim_size)*0 #TODO: System Noise for markers
+        self.Qk = np.identity(new_dim_size)*0.03
         self.Qk[0,0] = 0.01
         self.Qk[1,1] = 0.01
         self.Qk[2,2] = 0.001
@@ -173,8 +171,8 @@ class PID:
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = dt
         self.maximumValue = 0.35  # ToDo
-        self.minimumValue = 0.20
-
+        self.minimumValue = 0.15
+        
     def getError(self, currentState, targetState):
         """
         return the different between two states
@@ -213,6 +211,11 @@ class PID:
         elif (resultNorm < self.minimumValue):
             result = (result / resultNorm) * self.minimumValue
             # self.I = 0.0
+
+        min_rotation_omega = 1.3
+        if (abs(result[0]) <= 0.1 and abs(result[1]) <= 0.1) and \
+            abs(result[2]) < min_rotation_omega:
+                result[2] = min_rotation_omega * (1 if result[2] > 0 else -1)
         return result
 
 
@@ -230,7 +233,7 @@ class tfResolver:
     
     def getZk(self):
         '''
-        look into /tf, return Zk array and index array
+        look into /tf, return Zk dict
         '''
         self.new_markers.clear()
         Zk = {}
@@ -282,15 +285,18 @@ class PathPlanner:
         msg_count = 0
         msg_count = self.publish(0, 0, 0, msg_count)
 
-        while np.linalg.norm(self.pid.getError(self.kf.Xk[0:3, 0], np.array([target_x, target_y, target_ori]))) > 0.04:
-            cur_x, cur_y, cur_ori = self.kf.Xk[0, 0], self.kf.Xk[1, 0], self.kf.Xk[2, 0]
+        while True:
+            #np.linalg.norm(self.pid.getError(self.kf.Xk[0:3, 0], np.array([target_x, target_y, target_ori]))) > 0.04
+            error = self.pid.getError(self.kf.Xk[0:3, 0], np.array([target_x, target_y, target_ori]))
+            if np.linalg.norm(error[0:2]) < 0.05 and abs(error[2]) < 0.2:
+                break
 
             # These are world frame linear and angular velocities
             vvw_wf = self.pid.update(self.kf.Xk[0:3, 0])
             if self.verbose:
                 print('world frame velocities:', vvw_wf)
             vvw = handle_frame_transforms(vvw_wf, self.kf.Xk[0:3, 0])
-            msg_count = self.publish(vvw[0], vvw[1], 4*vvw[2], msg_count)
+            msg_count = self.publish(vvw[0], vvw[1], 1.1*vvw[2], msg_count)
 
             # giving the bot dt to move actually
             self.rate.sleep()
@@ -302,10 +308,9 @@ class PathPlanner:
             zk = self.tf_resolver.getZk()  ## Dict
             Zk = self.kf.compose_Zk(zk)
 
-            Xknew, Sigmaknew = self.kf.predict(dx, dy, dtheta)
+            Xknew, Sigmaknew = self.kf.predict(dx, dy, dtheta) 
             self.kf.update(Zk, Xknew, Sigmaknew, zk)
             self.kf.update_matrices(zk)
-
             self.logging_x.append(self.kf.Xk[0,0])
             self.logging_y.append(self.kf.Xk[1,0])
         
@@ -321,7 +326,7 @@ class PathPlanner:
             target_ori = float(line[2])  # This is Positive in CCW
 
             self.move_to_pose(target_x, target_y, target_ori)
-            time.sleep(1)
+            time.sleep(4)
 
         # Stopping after all waypoints have been traversed
         self.stop()
