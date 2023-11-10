@@ -6,6 +6,8 @@ import time
 import threading
 from datetime import datetime
 from sensor_msgs.msg import Joy
+from april_detection.msg import AprilTagDetectionArray
+from collections import defaultdict
 import numpy as np
 import tf
 
@@ -17,15 +19,16 @@ class KF:
 
         # System Noise
         self.Qk = np.identity(n)*0.03
-        self.Qk[0][0] = 0.01  # Std dev in x for robot -> 0.1 (10 cm)
-        self.Qk[1][1] = 0.01  # Std dev in y for robot -> 0.1 (10 cm)
-        self.Qk[2][2] = 0.001  # Std dev in theta for robot -> 0.03 (~5 degrees)
+        self.Qk[0][0] = 0.05  # Std dev in x for robot -> 0.1 (10 cm)
+        self.Qk[1][1] = 0.05  # Std dev in y for robot -> 0.1 (10 cm)
+        self.Qk[2][2] = 0.05  # Std dev in theta for robot -> 0.03 (~5 degrees)
 
         self.Rk = None
         self.Hk = None
 
         # Landmarks already known to KF
         self.lm_ordering = []
+        self.lm_count = defaultdict(int)
 
     def compose_Zk(self, zk):
         """
@@ -46,6 +49,8 @@ class KF:
         """
         
         theta_r = Xknew[2,0]
+        xr = Xknew[0,0]
+        yr = Xknew[1,0]
         Hk = np.zeros((Zk.shape[0], Xknew.shape[0]))
         cosine_theta = np.cos(theta_r)
         sine_theta = np.sin(theta_r)
@@ -67,6 +72,12 @@ class KF:
                 Hk[row1, 1] = -1*sine_theta
                 Hk[row2, 0] = sine_theta
                 Hk[row2, 1] = -1*cosine_theta
+
+                # EKF - Theta Derivative
+                # xlm = Xknew[column1,0]
+                # ylm = Xknew[column2,0]
+                # Hk[row1, 2] = -1*(xlm - xr)*sine_theta + (ylm -yr)*cosine_theta
+                # Hk[row2, 2] = -1*(xlm - xr)*cosine_theta + -1*(ylm - yr)*sine_theta
 
                 # Updating entries corresponding to xlm, ylm
                 Hk[row1, column1] = cosine_theta
@@ -106,7 +117,7 @@ class KF:
 
         self.getHk(Xknew, zk, Zk)
         # Measurement Noise woule be z x z
-        self.Rk = np.identity(Zk.shape[0])*0.0001 # Std dev ofmeasurement noise -> 0.01 (1 cm)
+        self.Rk = np.identity(Zk.shape[0])*0.00001 # Std dev ofmeasurement noise -> 0.01 (1 cm)
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
@@ -132,7 +143,8 @@ class KF:
         thetar = Xk_updated[2, 0]
 
         for id in zk.keys():
-            if id not in self.lm_ordering:
+            self.lm_count[id] += 1
+            if id not in self.lm_ordering and self.lm_count[id] > 5: #TODO
                 self.lm_ordering.append(id)
                 xlr = zk[id][0]
                 ylr = zk[id][1]
@@ -152,9 +164,9 @@ class KF:
         self.Fk = np.identity(new_dim_size)
 
         self.Qk = np.identity(new_dim_size)*0.03
-        self.Qk[0,0] = 0.01
-        self.Qk[1,1] = 0.01
-        self.Qk[2,2] = 0.001
+        self.Qk[0,0] = 0.05
+        self.Qk[1,1] = 0.05
+        self.Qk[2,2] = 0.05
 
         self.Xk = Xk_updated
         self.Sigmak = Sigmak_updated
@@ -170,7 +182,7 @@ class PID:
         self.I = np.array([0.0, 0.0, 0.0])
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = dt
-        self.maximumValue = 0.35  # ToDo
+        self.maximumValue = 0.25  # ToDo
         self.minimumValue = 0.15
         
     def getError(self, currentState, targetState):
@@ -230,22 +242,33 @@ class tfResolver:
         self.listener = tf.TransformListener()
         self.markers = set()
         self.new_markers = set()
-    
+        self.current_markers_lock = threading.Lock()
+        self.current_markers = set()
+        
+    def april_callback(self, april_tag_out):
+        detections = april_tag_out.detections
+        with self.current_markers_lock:
+            self.current_markers.clear()
+            for detection in detections:
+                if 0<= detection.id <=7:
+                    self.current_markers.add(detection.id)
+
     def getZk(self):
         '''
         look into /tf, return Zk dict
         '''
-        self.new_markers.clear()
-        Zk = {}
-        for idx in range(0,8):
-            marker_name = "marker_" + str(idx)
-            if self.listener.frameExists(marker_name):
-                if idx not in self.markers:
-                    self.markers.add(idx)
-                    self.new_markers.add(idx)
-                self.listener.waitForTransform("/body", marker_name, rospy.Time(), rospy.Duration(1))
-                (translation, rotation) = self.listener.lookupTransform("/body", marker_name, rospy.Time(0))
-                Zk[idx] = translation[0:2] # marker_i in body frame
+        with self.current_markers_lock:
+            self.new_markers.clear()
+            Zk = dict()
+            for idx in self.current_markers:
+                marker_name = "marker_" + str(idx)
+                if self.listener.frameExists(marker_name):
+                    if idx not in self.markers:
+                        self.markers.add(idx)
+                        self.new_markers.add(idx)
+                    self.listener.waitForTransform("/body", marker_name, rospy.Time(), rospy.Duration(1))
+                    (translation, rotation) = self.listener.lookupTransform("/body", marker_name, rospy.Time(0))
+                    Zk[idx] = translation[0:2] # marker_i in body frame
         return Zk
     
 class PathPlanner:
@@ -313,6 +336,8 @@ class PathPlanner:
             self.kf.update_matrices(zk)
             self.logging_x.append(self.kf.Xk[0,0])
             self.logging_y.append(self.kf.Xk[1,0])
+
+            print("##", self.kf.lm_ordering)
         
         # Stopping the bot
         msg_count = self.publish(0, 0, 0, msg_count)
@@ -326,7 +351,7 @@ class PathPlanner:
             target_ori = float(line[2])  # This is Positive in CCW
 
             self.move_to_pose(target_x, target_y, target_ori)
-            time.sleep(4)
+            time.sleep(1)
 
         # Stopping after all waypoints have been traversed
         self.stop()
@@ -342,6 +367,11 @@ class PathPlanner:
             np.save(f, pp.logging_y)
         with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'state_vector' + ".npy", 'wb') as f:
             np.save(f, pp.kf.Xk)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'sigma_matrix' + ".npy", 'wb') as f:
+            np.save(f, pp.kf.Sigmak)
+        with open("/root/rb5_ws/src/rb5_ros/path_planner/src/" + 'order_tags' + ".npy", 'wb') as f:
+            np.save(f, np.array(pp.kf.lm_ordering, dtype=float))
+        
 
         self.file.close()
         print("path plan all published")
@@ -350,7 +380,9 @@ class PathPlanner:
 if __name__ == "__main__":
     rospy.init_node("path_planner")
     pub = rospy.Publisher("/bot_vvw", Joy, queue_size=6)
+
     pp = PathPlanner(verbose=True)
+    rospy.Subscriber('apriltag_detection_array', AprilTagDetectionArray, pp.tf_resolver.april_callback, queue_size=3)     
     time.sleep(1)
     pp.run()
     rospy.spin()
