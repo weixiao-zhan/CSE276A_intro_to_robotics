@@ -21,7 +21,7 @@ class KF:
         self.Qk = np.identity(n)*0.03
         self.Qk[0][0] = 0.05  # Std dev in x for robot -> 0.1 (10 cm)
         self.Qk[1][1] = 0.05  # Std dev in y for robot -> 0.1 (10 cm)
-        self.Qk[2][2] = 0.05  # Std dev in theta for robot -> 0.03 (~5 degrees)
+        self.Qk[2][2] = 0.005  # Std dev in theta for robot -> 0.03 (~5 degrees)
 
         self.Rk = None
         self.Hk = None
@@ -117,7 +117,7 @@ class KF:
 
         self.getHk(Xknew, zk, Zk)
         # Measurement Noise woule be z x z
-        self.Rk = np.identity(Zk.shape[0])*0.00001 # Std dev ofmeasurement noise -> 0.01 (1 cm)
+        self.Rk = np.identity(Zk.shape[0])*0.0001 # Std dev ofmeasurement noise -> 0.01 (1 cm)
 
         # Computing Kalman Gain and other matrices.
         Yk = Zk - np.matmul(self.Hk, Xknew)
@@ -166,7 +166,7 @@ class KF:
         self.Qk = np.identity(new_dim_size)*0.03
         self.Qk[0,0] = 0.05
         self.Qk[1,1] = 0.05
-        self.Qk[2,2] = 0.05
+        self.Qk[2,2] = 0.005
 
         self.Xk = Xk_updated
         self.Sigmak = Sigmak_updated
@@ -182,7 +182,7 @@ class PID:
         self.I = np.array([0.0, 0.0, 0.0])
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = dt
-        self.maximumValue = 0.25  # ToDo
+        self.maximumValue = 0.35  # ToDo
         self.minimumValue = 0.15
         
     def getError(self, currentState, targetState):
@@ -224,7 +224,7 @@ class PID:
             result = (result / resultNorm) * self.minimumValue
             # self.I = 0.0
 
-        min_rotation_omega = 1.3
+        min_rotation_omega = 1.2
         if (abs(result[0]) <= 0.1 and abs(result[1]) <= 0.1) and \
             abs(result[2]) < min_rotation_omega:
                 result[2] = min_rotation_omega * (1 if result[2] > 0 else -1)
@@ -319,7 +319,7 @@ class PathPlanner:
             if self.verbose:
                 print('world frame velocities:', vvw_wf)
             vvw = handle_frame_transforms(vvw_wf, self.kf.Xk[0:3, 0])
-            msg_count = self.publish(vvw[0], vvw[1], 1.1*vvw[2], msg_count)
+            msg_count = self.publish(vvw[0], vvw[1], 1.23*vvw[2], msg_count)
 
             # giving the bot dt to move actually
             self.rate.sleep()
