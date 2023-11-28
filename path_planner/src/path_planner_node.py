@@ -20,7 +20,7 @@ class PID:
         self.I = np.array([0.0, 0.0, 0.0])
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = dt
-        self.maximumValue = 0.35  # ToDo
+        self.maximumValue = 0.30  # ToDo
         self.minimumValue = 0.20
 
     def getError(self, currentState, targetState):
@@ -61,6 +61,11 @@ class PID:
         elif (resultNorm < self.minimumValue):
             result = (result / resultNorm) * self.minimumValue
             # self.I = 0.0
+
+        min_rotation_omega = 1.2
+        if (abs(result[0]) <= 0.1 and abs(result[1]) <= 0.1) and \
+            abs(result[2]) < min_rotation_omega:
+                result[2] = min_rotation_omega * (1 if result[2] > 0 else -1)
         return result
 
 
@@ -82,9 +87,9 @@ class PathPlanner:
         self.pid = PID(0.40, 0.010, 0.030, self.dt)
 
         self.lock = threading.Lock()
-        self.cur_x = 0
-        self.cur_y = 0
-        self.cur_ori = 0
+        self.cur_x = 2.5
+        self.cur_y = 0.5
+        self.cur_ori = 1.57
         self.x_locs = []
         self.y_locs = []
         self.theta_locs = []
@@ -135,7 +140,7 @@ class PathPlanner:
             if self.verbose:
                 print('world frame velocities:', vvw_wf)
             vvw = handle_frame_transforms(vvw_wf, [cur_x, cur_y, cur_ori])
-            msg_count = self.publish(vvw[0], 1.25*vvw[1], vvw[2], msg_count)
+            msg_count = self.publish(vvw[0], 1.20*vvw[1], vvw[2], msg_count)
 
             # giving the bot dt to move actually
             self.rate.sleep()
@@ -145,7 +150,7 @@ class PathPlanner:
                 self.x_locs.append(self.cur_x)
                 self.y_locs.append(self.cur_y)
                 self.theta_locs.append(self.cur_ori)
-                if (datetime.now() - self.most_recent_update).total_seconds() > 0.5*self.dt:
+                if (datetime.now() - self.most_recent_update).total_seconds() > 0.8*self.dt:
                     self.cur_x = cur_x + vvw_wf[0]*self.dt
                     self.cur_y = cur_y + vvw_wf[1]*self.dt
                     self.update_type.append(0)
@@ -177,11 +182,7 @@ class PathPlanner:
                 continue
 
             self.move_to_pose(target_x, target_y, target_ori)
-
-            if target_x == 1.5 and target_y == 1 and target_ori == 1.57:
-                pass
-            else:
-                time.sleep(5)
+            time.sleep(1)
 
         # Stopping after all waypoints have been traversed
         self.stop()

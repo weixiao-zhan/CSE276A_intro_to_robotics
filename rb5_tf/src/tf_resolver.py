@@ -23,6 +23,9 @@ def april_callback(april_tag_out):
         id = detection.id
         body_frame_name = '/body_' + str(id)
 
+        if id > 7:
+            continue
+
         try:
             listener.waitForTransform("/world", body_frame_name, rospy.Time(), rospy.Duration(1))
             (translation, rotation) = listener.lookupTransform("/world", body_frame_name , rospy.Time(0))
@@ -47,12 +50,11 @@ def april_callback(april_tag_out):
         y_avg /= weight_sum
         theta_avg /= weight_sum
         joy_msg.axes = [1.0, x_avg ,y_avg ,theta_avg ,0.0 ,0.0 ,0.0 ,0.0]
+        pub.publish(joy_msg)
     else:
         joy_msg.axes = [-1.0, 0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,0.0]
 
     print(joy_msg.axes)
-
-    pub.publish(joy_msg)
 
 
 if __name__ == "__main__":
